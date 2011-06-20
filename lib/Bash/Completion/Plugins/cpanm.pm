@@ -9,8 +9,9 @@
 #
 package Bash::Completion::Plugins::cpanm;
 BEGIN {
-  $Bash::Completion::Plugins::cpanm::VERSION = '0.0.1';
+  $Bash::Completion::Plugins::cpanm::VERSION = '0.0.2';
 }
+
 # ABSTRACT: Bash completion for cpanm and cpanf
 use strict;
 use warnings;
@@ -23,7 +24,7 @@ use JSON;
 use Bash::Completion::Utils qw( command_in_path );
 
 sub should_activate {
-    my @commands = ( 'cpanm', 'cpanf' );
+    my @commands = qw( cpanm cpanf cpan );
     return [ grep { command_in_path($_) } @commands ];
 }
 
@@ -33,12 +34,27 @@ sub complete {
     my ( $class, $req ) = @_;
     my $ua = LWP::UserAgent->new;
     ( my $key = $req->word ) =~ s/::?/-/g;
+
     #$key =~ s/-$//g;
     my $res = $ua->request(
-                          POST 'http://api.metacpan.org/dist/_search',
-                          Content => '{"query":{"prefix":{"_id":"' 
-                            . $key
-                            . '"}},"fields":["name"],"sort":["_id"],"size":1000}'
+        POST 'http://api.metacpan.org/release/_search',
+        Content => encode_json(
+            {   size   => 1000,
+                fields => ['distribution'],
+                sort   => ['distribution'],
+                query  => {
+                    filtered => {
+                        query  => { match_all => {} },
+                        filter => {
+                            and => [
+                                { prefix => { 'release.distribution' => $key } },
+                                { term   => { status        => 'latest' } }
+                            ]
+                        }
+                    }
+                }
+            }
+        )
     );
     eval {
         my $json = decode_json( $res->content );
@@ -46,7 +62,7 @@ sub complete {
         my @candidates;
         my $exact_match = 0;
         for ( @{ $json->{hits}->{hits} } ) {
-            my $dist = $_->{fields}->{name};
+            my $dist = $_->{fields}->{distribution};
             $exact_match = 1 if ( $key eq $dist );
             $key  =~ s/^(.*)\-.*?$/$1-/;
             $dist =~ s/^\Q$key\E// if ( $key =~ /-/ );
@@ -54,7 +70,7 @@ sub complete {
             push( @candidates, $dist );
         }
         $req->candidates(@candidates)
-          unless ( $exact_match && @candidates == 1 );
+            unless ( $exact_match && @candidates == 1 );
     };
 }
 
@@ -70,7 +86,7 @@ Bash::Completion::Plugins::cpanm - Bash completion for cpanm and cpanf
 
 =head1 VERSION
 
-version 0.0.1
+version 0.0.2
 
 =head1 SYNOPSIS
 
@@ -96,7 +112,7 @@ version 0.0.1
 
 =head1 DESCRIPTION
 
-L<Bash::Completion> profile for C<cpanm> and C<cpanf>.
+L<Bash::Completion> profile for C<cpanm>, C<cpanf> and C<cpan>.
 
 Simply add this line to your C<.bashrc> or C<.bash_profile> file:
 
